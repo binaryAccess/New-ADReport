@@ -57,7 +57,7 @@
   .NOTES
     Authored by    : Jakob H. Heidelberg / @JakobHeidelberg
     Date created   : 01/10-2014
-    Last modified  : 21/03-2015
+    Last modified  : 01/10-2015
 
     Version history:
     - 1.14: Initial version for PS 3.0
@@ -67,6 +67,7 @@
     - 1.18: Minor changes
     - 1.19: Added a few more groups
     - 1.20: First public release [21/3-2015]
+    - 1.21: Minor fixes (priv-user CSV format, pwd min length, comp container)
 
     Tested on:
      - WS 2012 R2 (Set-StrictMode -Version 1.0)
@@ -76,6 +77,7 @@
      - WS 2008 R2 (Native PS 2.0)
      - WS 2008 R2 (Native PS 3.0)
      - Windows 7 SP1 w/RSAT (PS 2.0)
+     - Winodws 8.1 w/RSAT
 
     Known Issues & possible solutions:
      KI-0001: Code is not pretty and can be optimized in several ways.
@@ -135,7 +137,7 @@ Function New-ADReport
     $UserInactivePasswordDays = 120
   )
 	
-  $str_ScriptVersion = '1.20'
+  $str_ScriptVersion = '1.21'
 
   # Import AD module
   Import-Module ActiveDirectory -Verbose:$False -ErrorAction SilentlyContinue
@@ -158,11 +160,16 @@ Function New-ADReport
   $str_ADDomain_NetBIOSName = $obj_ADDomain.NetBIOSName
   $str_ADDomain_Forest = $obj_ADDomain.Forest
   $str_ADDomain_DomainMode = $obj_ADDomain.DomainMode
+  $str_ADDomain_DistinguishedName = $obj_ADDomain.DistinguishedName
   $str_ADDomainSID = $obj_ADDomain.DomainSID.Value
   $str_ADDomainComputersContainer = $obj_ADDomain.ComputersContainer
+  $str_ADDomainExpectedDefaultComputersContainer = "CN=Computers,$str_ADDomain_DistinguishedName"
 
   # Are we in the Forest Root Domain?
   If ($str_ADDomain_DNSRoot -eq $str_ADDomain_Forest){ $bol_ForestRootDomain = $True } Else { $bol_ForestRootDomain = $False }
+
+  # Do we have compu
+  If ($str_ADDomainComputersContainer -eq $str_ADDomainExpectedDefaultComputersContainer){ $bol_ExpectedDefaultComputersContainer = $True } Else { $bol_ExpectedDefaultComputersContainer = $False }
 
   # AD Password Policy info
   Write-Verbose 'Progress: Getting default domain password policy...' 
@@ -644,6 +651,7 @@ Basic info:
 
 Default Domain password policy:
  - ComplexityEnabled          : $str_ADDomainPwdPolicy_ComplexityEnabled
+ - Minimum Password Length    : $str_ADDomainPwdPolicy_MinPasswordLength
  - LockoutDuration            : $str_ADDomainPwdPolicy_LockoutDuration
  - Lockout Observation Window : $str_ADDomainPwdPolicy_LockoutObservationWindow
  - Lockout Threshold          : $str_ADDomainPwdPolicy_LockoutThreshold
@@ -728,7 +736,8 @@ AD Computers and DC roles:
  - # of Global Catalog Srvs   : $cnt_ADGlobalCatalogSrv
 
 Clients and Operating systems : [enabled/disabled]
- - # in Default AD Container  : $cnt_ADComputersContainer_enabled/$cnt_ADComputersContainer_disabled
+ - Default CompContainer used : $bol_ExpectedDefaultComputersContainer ($str_ADDomainComputersContainer)
+ - Below Default CompCont/OU  : $cnt_ADComputersContainer_enabled/$cnt_ADComputersContainer_disabled
  - # of Unknown OS (null)     : $cnt_ADComputersUnknownOS_enabled/$cnt_ADComputersUnknownOS_disabled
  - # of Windows Server family : $cnt_ADComputersWindowsServers_enabled/$cnt_ADComputersWindowsServers_disabled
  - # of Windows Client family : $cnt_ADComputersWindowsClients_enabled/$cnt_ADComputersWindowsClients_disabled
@@ -748,12 +757,12 @@ Clients and Operating systems : [enabled/disabled]
 	
   # Dump privileged user information to CSV
   Write-Verbose 'Progress: Dumping privileged user information to CSV...' 
-  If ($DumpFile_PrivilegedUserInfo) { $obj_ADUsersPrivileged_all | Select-Object SamAccountName, SID, GivenName, Surname, UserPrincipalName, Description, Enabled, Created, AllowReversiblePasswordEncryption, DoesNotRequirePreAuth, SmartcardLogonRequired, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, PasswordLastSet, PasswordExpired, LastLogonDate, BadLogonCount, LastBadPasswordAttempt, LockedOut, AccountLockoutTime, adminCount, TrustedForDelegation | Export-CSV "ADReport-$str_ADDomain_DNSRoot-$str_FileTimeStamp-PrivilegedUsers.csv" -Delimiter "`t" -NoTypeInformation -Encoding UTF8 }
+  If ($DumpFile_PrivilegedUserInfo) { $obj_ADUsersPrivileged_all | Select-Object SamAccountName, SID, distinguishedName, objectClass | Export-CSV "ADReport-$str_ADDomain_DNSRoot-$str_FileTimeStamp-PrivilegedUsers.csv" -Delimiter "`t" -NoTypeInformation -Encoding UTF8 }
 	
   # Dump computer information to CSV
   Write-Verbose 'Progress: Dumping computer information to CSV...' 
   If ($DumpFile_ComputerInfo) { $obj_ADComputers | Select-Object Name, SID, DNSHostName, IPv4Address, IPv6Address, Description, Enabled, Created, AllowReversiblePasswordEncryption, DoesNotRequirePreAuth, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, PasswordLastSet, PasswordExpired, LastLogonDate, BadLogonCount, LastBadPasswordAttempt, LockedOut, AccountLockoutTime, OperatingSystem, OperatingSystemServicePack, OperatingSystemVersion, TrustedForDelegation | Export-CSV "ADReport-$str_ADDomain_DNSRoot-$str_FileTimeStamp-Computers.csv" -Delimiter "`t" -NoTypeInformation -Encoding UTF8 }
-	
+
   # Dump Text Report
   $ElapsedTimeTotalSeconds = $($(Get-Date) - $time).TotalSeconds
   $str_ReportText += "[Elapsed Time: $ElapsedTimeTotalSeconds seconds]" 
