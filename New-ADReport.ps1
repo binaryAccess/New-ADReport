@@ -57,7 +57,7 @@
   .NOTES
     Authored by    : Jakob H. Heidelberg / @JakobHeidelberg
     Date created   : 01/10-2014
-    Last modified  : 01/10-2015
+    Last modified  : 06/10-2015
 
     Version history:
     - 1.14: Initial version for PS 3.0
@@ -68,6 +68,8 @@
     - 1.19: Added a few more groups
     - 1.20: First public release [21/3-2015]
     - 1.21: Minor fixes (priv-user CSV format, pwd min length, comp container)
+    - 1.22: Fixed SIDhistory count for users & computers (missed SIDHistory property for $obj_ADUsers & $obj_ADComputers)
+    - 1.23: Fixed "A referral was returned from the server" on Get-ADUser without Global Catalog server defined (port 3268) if multiple domains
 
     Tested on:
      - WS 2012 R2 (Set-StrictMode -Version 1.0)
@@ -137,7 +139,7 @@ Function New-ADReport
     $UserInactivePasswordDays = 120
   )
 	
-  $str_ScriptVersion = '1.21'
+  $str_ScriptVersion = '1.23'
 
   # Import AD module
   Import-Module ActiveDirectory -Verbose:$False -ErrorAction SilentlyContinue
@@ -149,9 +151,9 @@ Function New-ADReport
   $time = Get-Date
   $str_FileTimeStamp = Get-Date -format 'yyyyMMddHHmmss'
 
-  Write-Verbose "New-ADReport version          : $str_ScriptVersion]" 
+  Write-Verbose "New-ADReport version          : $str_ScriptVersion" 
   Write-Verbose "- File Time Stamp             : $str_FileTimeStamp" 
-  Write-Verbose "- Start Time                  : $time]" 
+  Write-Verbose "- Start Time                  : $time" 
 	
   # Basic AD info
   Write-Verbose 'Progress: Getting domain info...' 
@@ -294,12 +296,12 @@ Function New-ADReport
 	
   # Get AD users + count
   Write-Verbose 'Progress: Getting AD users...' 
-  $obj_ADUsers = @(Get-ADUser -Filter * -Properties SamAccountName, SID, GivenName, Surname, UserPrincipalName, Description, Enabled, Created, AllowReversiblePasswordEncryption, DoesNotRequirePreAuth, SmartcardLogonRequired, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, PasswordLastSet, PasswordExpired, LastLogonDate, BadLogonCount, LastBadPasswordAttempt, LockedOut, AccountLockoutTime, adminCount, TrustedForDelegation)
+  $obj_ADUsers = @(Get-ADUser -Filter * -Properties SamAccountName, SID, SIDHistory, GivenName, Surname, UserPrincipalName, Description, Enabled, Created, AllowReversiblePasswordEncryption, DoesNotRequirePreAuth, SmartcardLogonRequired, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, PasswordLastSet, PasswordExpired, LastLogonDate, BadLogonCount, LastBadPasswordAttempt, LockedOut, AccountLockoutTime, adminCount, TrustedForDelegation)
   $cnt_ADUsers = @($obj_ADUsers).Count
 
   # Get AD computers + count
   Write-Verbose 'Progress: Getting AD computers...' 
-  $obj_ADComputers = @(Get-ADComputer -Filter * -Properties Name, SID, DNSHostName, IPv4Address, IPv6Address, Description, Enabled, Created, AllowReversiblePasswordEncryption, DoesNotRequirePreAuth, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, PasswordLastSet, PasswordExpired, LastLogonDate, BadLogonCount, LastBadPasswordAttempt, LockedOut, AccountLockoutTime, OperatingSystem, OperatingSystemServicePack, OperatingSystemVersion, TrustedForDelegation)
+  $obj_ADComputers = @(Get-ADComputer -Filter * -Properties Name, SID, SIDHistory, DNSHostName, IPv4Address, IPv6Address, Description, Enabled, Created, AllowReversiblePasswordEncryption, DoesNotRequirePreAuth, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, PasswordLastSet, PasswordExpired, LastLogonDate, BadLogonCount, LastBadPasswordAttempt, LockedOut, AccountLockoutTime, OperatingSystem, OperatingSystemServicePack, OperatingSystemVersion, TrustedForDelegation)
   $cnt_ADComputers = @($obj_ADComputers).Count
 	
   Write-Verbose 'Progress: Getting DC information...' 
@@ -326,10 +328,16 @@ Function New-ADReport
   # ================= #
 
   # Reference:
-  # - https://technet.microsoft.com/en-us/library/dn487460.aspx
-  # - https://support.microsoft.com/en-us/kb/243330
+  # - Privileged Accounts and Groups in Active Directory: https://technet.microsoft.com/en-us/library/dn487460.aspx
+  # - Well-known security identifiers in Windows operating systems: https://support.microsoft.com/en-us/kb/243330
 
   Write-Verbose 'Progress: Getting members of interesting groups...' 
+
+  # We need a Global Catalog in case we deal with multiple domains
+  # https://technet.microsoft.com/en-us/library/ee617217.aspx
+  $strGlobalCatalogServer = (Get-ADDomainController -Discover -Service "GlobalCatalog").Hostname
+  $intGlobalCatalogServerPort = 3268
+  Write-Verbose "GlobalCatalog used: $($strGlobalCatalogServer):$intGlobalCatalogServerPort"
 
   # Get members of interesting Forest Root Domain groups (only users)
   If ($bol_ForestRootDomain)
@@ -397,7 +405,7 @@ Function New-ADReport
   $obj_ADUsersPrivileged_all = $obj_ADUsersPrivileged_all | Sort-Object -Unique
   If ($obj_ADUsersPrivileged_all) {
       $cnt_ADUsersPrivileged_all = @($obj_ADUsersPrivileged_all).Count
-      $cnt_ADUsersPrivileged_all_enabled = @($obj_ADUsersPrivileged_all | Get-ADUser | Where-Object { $_.Enabled -eq $True }).Count
+      $cnt_ADUsersPrivileged_all_enabled = @($obj_ADUsersPrivileged_all | Get-ADUser -Server "$($strGlobalCatalogServer):$intGlobalCatalogServerPort" | Where-Object { $_.Enabled -eq $True }).Count
      }
 
   # Aggregate Highly Privileged Accounts (users only)
@@ -413,7 +421,7 @@ Function New-ADReport
   $obj_ADUsersHighlyPrivileged = $obj_ADUsersHighlyPrivileged | Sort-Object -Unique
   If ($obj_ADUsersHighlyPrivileged) {
       $cnt_ADUsersHighlyPrivileged = @($obj_ADUsersHighlyPrivileged).Count
-      $cnt_ADUsersHighlyPrivileged_enabled = @($obj_ADUsersHighlyPrivileged | Get-ADUser | Where-Object { $_.Enabled -eq $True }).Count
+      $cnt_ADUsersHighlyPrivileged_enabled = @($obj_ADUsersHighlyPrivileged | Get-ADUser -Server "$($strGlobalCatalogServer):$intGlobalCatalogServerPort" | Where-Object { $_.Enabled -eq $True }).Count
      }
 	
   # Count members of interesting groups (users only)
@@ -443,18 +451,18 @@ Function New-ADReport
   $obj_ADGroupGPCreatorOwners_enabled = @()
   $obj_ADGroupDnsAdmins_enabled = @()
   
-  If ($obj_ADGroupAdministrators) { $obj_ADGroupAdministrators_enabled = @($obj_ADGroupAdministrators | Get-ADUser | Where-Object { $_.Enabled -eq $True }) }
-  If ($obj_ADGroupDomainAdmins) { $obj_ADGroupDomainAdmins_enabled = @($obj_ADGroupDomainAdmins | Get-ADUser | Where-Object { $_.Enabled -eq $True }) }
-  If ($obj_ADGroupEnterpriseAdmins) { $obj_ADGroupEnterpriseAdmins_enabled = @($obj_ADGroupEnterpriseAdmins | Get-ADUser | Where-Object { $_.Enabled -eq $True }) }
-  If ($obj_ADGroupSchemaAdmins) { $obj_ADGroupSchemaAdmins_enabled = @($obj_ADGroupSchemaAdmins | Get-ADUser | Where-Object { $_.Enabled -eq $True }) }
-  If ($obj_ADGroupAccountOperators) { $obj_ADGroupAccountOperators_enabled = @($obj_ADGroupAccountOperators | Get-ADUser | Where-Object { $_.Enabled -eq $True }) }
-  If ($obj_ADGroupServerOperators) { $obj_ADGroupServerOperators_enabled = @($obj_ADGroupServerOperators | Get-ADUser | Where-Object { $_.Enabled -eq $True }) }
-  If ($obj_ADGroupBackupOperators) { $obj_ADGroupBackupOperators_enabled = @($obj_ADGroupBackupOperators | Get-ADUser | Where-Object { $_.Enabled -eq $True }) }
-  If ($obj_ADGroupPrintOperators) { $obj_ADGroupPrintOperators_enabled = @($obj_ADGroupPrintOperators | Get-ADUser | Where-Object { $_.Enabled -eq $True }) }
-  If ($obj_ADGroupGuests) { $obj_ADGroupGuests_enabled = @($obj_ADGroupGuests | Get-ADUser | Where-Object { $_.Enabled -eq $True }) }
-  If ($obj_ADGroupCertPublishers) { $obj_ADGroupCertPublishers_enabled = @($obj_ADGroupCertPublishers | Get-ADUser | Where-Object { $_.Enabled -eq $True }) }
-  If ($obj_ADGroupGPCreatorOwners) { $obj_ADGroupGPCreatorOwners_enabled = @($obj_ADGroupGPCreatorOwners | Get-ADUser | Where-Object { $_.Enabled -eq $True }) }
-  If ($obj_ADGroupDnsAdmins) { $obj_ADGroupDnsAdmins_enabled = @($obj_ADGroupDnsAdmins | Get-ADUser | Where-Object { $_.Enabled -eq $True }) }
+  If ($obj_ADGroupAdministrators) { $obj_ADGroupAdministrators_enabled = @($obj_ADGroupAdministrators | Get-ADUser -Server "$($strGlobalCatalogServer):$intGlobalCatalogServerPort" | Where-Object { $_.Enabled -eq $True }) }
+  If ($obj_ADGroupDomainAdmins) { $obj_ADGroupDomainAdmins_enabled = @($obj_ADGroupDomainAdmins | Get-ADUser -Server "$($strGlobalCatalogServer):$intGlobalCatalogServerPort" | Where-Object { $_.Enabled -eq $True }) }
+  If ($obj_ADGroupEnterpriseAdmins) { $obj_ADGroupEnterpriseAdmins_enabled = @($obj_ADGroupEnterpriseAdmins | Get-ADUser -Server "$($strGlobalCatalogServer):$intGlobalCatalogServerPort" | Where-Object { $_.Enabled -eq $True }) }
+  If ($obj_ADGroupSchemaAdmins) { $obj_ADGroupSchemaAdmins_enabled = @($obj_ADGroupSchemaAdmins | Get-ADUser -Server "$($strGlobalCatalogServer):$intGlobalCatalogServerPort" | Where-Object { $_.Enabled -eq $True }) }
+  If ($obj_ADGroupAccountOperators) { $obj_ADGroupAccountOperators_enabled = @($obj_ADGroupAccountOperators | Get-ADUser -Server "$($strGlobalCatalogServer):$intGlobalCatalogServerPort" | Where-Object { $_.Enabled -eq $True }) }
+  If ($obj_ADGroupServerOperators) { $obj_ADGroupServerOperators_enabled = @($obj_ADGroupServerOperators | Get-ADUser -Server "$($strGlobalCatalogServer):$intGlobalCatalogServerPort" | Where-Object { $_.Enabled -eq $True }) }
+  If ($obj_ADGroupBackupOperators) { $obj_ADGroupBackupOperators_enabled = @($obj_ADGroupBackupOperators | Get-ADUser -Server "$($strGlobalCatalogServer):$intGlobalCatalogServerPort" | Where-Object { $_.Enabled -eq $True }) }
+  If ($obj_ADGroupPrintOperators) { $obj_ADGroupPrintOperators_enabled = @($obj_ADGroupPrintOperators | Get-ADUser -Server "$($strGlobalCatalogServer):$intGlobalCatalogServerPort" | Where-Object { $_.Enabled -eq $True }) }
+  If ($obj_ADGroupGuests) { $obj_ADGroupGuests_enabled = @($obj_ADGroupGuests | Get-ADUser -Server "$($strGlobalCatalogServer):$intGlobalCatalogServerPort" | Where-Object { $_.Enabled -eq $True }) }
+  If ($obj_ADGroupCertPublishers) { $obj_ADGroupCertPublishers_enabled = @($obj_ADGroupCertPublishers | Get-ADUser -Server "$($strGlobalCatalogServer):$intGlobalCatalogServerPort" | Where-Object { $_.Enabled -eq $True }) }
+  If ($obj_ADGroupGPCreatorOwners) { $obj_ADGroupGPCreatorOwners_enabled = @($obj_ADGroupGPCreatorOwners | Get-ADUser -Server "$($strGlobalCatalogServer):$intGlobalCatalogServerPort" | Where-Object { $_.Enabled -eq $True }) }
+  If ($obj_ADGroupDnsAdmins) { $obj_ADGroupDnsAdmins_enabled = @($obj_ADGroupDnsAdmins | Get-ADUser -Server "$($strGlobalCatalogServer):$intGlobalCatalogServerPort" | Where-Object { $_.Enabled -eq $True }) }
 
   # Count enabled/active group members
   If ($obj_ADGroupAdministrators_enabled) { $cnt_ADGroupAdministrators_enabled = @($obj_ADGroupAdministrators_enabled).Count }
@@ -475,7 +483,7 @@ Function New-ADReport
   # ================ #
 
   Write-Verbose 'Progress: Getting interesting user accounts...' 
-	
+
   # Get interesting users
   $obj_ADUsersReversibleEncryption = @($obj_ADUsers_enabled | Where-Object { $_.AllowReversiblePasswordEncryption -eq $True })
   $obj_ADUsersDoesNotRequirePreAuth = @($obj_ADUsers_enabled | Where-Object { $_.DoesNotRequirePreAuth -eq $True })
@@ -490,7 +498,7 @@ Function New-ADReport
   $obj_ADUsersServicePrincipalName = @($obj_ADUsers_enabled | Where-Object { $_.ServicePrincipalName -eq $True })
 	
   # Get users with SIDHistory defined
-  $obj_ADUsersWithSIDHistory = @($obj_ADUsers_enabled | Where-Object { $_.SIDHistory -eq $True })
+  $obj_ADUsersWithSIDHistory = @($obj_ADUsers_enabled | Where-Object { $_.SIDHistory })
 	
   # Count interesting users
   If ($obj_ADUsersReversibleEncryption) { $cnt_ADUsersReversibleEncryption = @($obj_ADUsersReversibleEncryption).Count }
@@ -540,8 +548,8 @@ Function New-ADReport
   # ==================== #
   # AD computer analysis #
   # ==================== #
-  Write-Verbose 'Progress: Getting interesting computer accounts...' 
-	
+  Write-Verbose 'Progress: Getting interesting computer accounts...'
+
   # Get interesting computers
   $obj_ADComputersReversibleEncryption = @($obj_ADComputers_enabled | Where-Object { $_.AllowReversiblePasswordEncryption -eq $True })
   $obj_ADComputersDoesNotRequirePreAuth = @($obj_ADComputers_enabled | Where-Object { $_.DoesNotRequirePreAuth -eq $True })
@@ -734,6 +742,7 @@ Possible inactive computers:
 AD Computers and DC roles:
  - # of Domain Controllers    : $cnt_ADDomainControllers
  - # of Global Catalog Srvs   : $cnt_ADGlobalCatalogSrv
+ - Global Catalog server used : $($strGlobalCatalogServer):$intGlobalCatalogServerPort
 
 Clients and Operating systems : [enabled/disabled]
  - Default CompContainer used : $bol_ExpectedDefaultComputersContainer ($str_ADDomainComputersContainer)
