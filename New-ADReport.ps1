@@ -57,7 +57,7 @@
   .NOTES
     Authored by    : Jakob H. Heidelberg / @JakobHeidelberg
     Date created   : 01/10-2014
-    Last modified  : 06/10-2015
+    Last modified  : 07/10-2015
 
     Version history:
     - 1.14: Initial version for PS 3.0
@@ -70,6 +70,9 @@
     - 1.21: Minor fixes (priv-user CSV format, pwd min length, comp container)
     - 1.22: Fixed SIDhistory count for users & computers (missed SIDHistory property for $obj_ADUsers & $obj_ADComputers)
     - 1.23: Fixed "A referral was returned from the server" on Get-ADUser without Global Catalog server defined (port 3268) if multiple domains
+    - 1.24: Fixed Computers Container (CN=Computers) queries
+    - 1.25: Basic searches for AD trusts + forest info + FSMO roles
+    - 1.26: CR-0006 implemented
 
     Tested on:
      - WS 2012 R2 (Set-StrictMode -Version 1.0)
@@ -95,7 +98,7 @@
      CR-0003: Check group "DHCP Administrators" perhaps.
      CR-0004: Stats should reflect Privileged and Highly Privileges non-user accounts too. Perhaps separate file dump.
      CR-0005: Include check for SID-History attack: http://www.version2.dk/blog/historien-om-den-skjulte-domain-admin-68832.
-     CR-0006: Dump SIDHistory values in user dumps.
+     CR-0006: Dump SIDHistory values in user dumps > implemented v1.26.
      CR-0007: Computer OS stats/table/matrix (Build, Name, SP level, #Enabled, #Disabled, #Stale, %stats).
      CR-0008: Detect other out of support Windows OSs, not just Windows XP.
      CR-0009: Multi-domain support & stats.
@@ -103,6 +106,7 @@
      CR-0011: Get # 'Account is sensitive and cannot be delegated'.
      CR-0012: Check connection between SCRIL bit set and Password Never Expires. Take into account.
      CR-0013: Computers that are "trusted for delegation" can be regular DCs. Take into account.
+     CR-0014: Consider including trust info from https://gallery.technet.microsoft.com/scriptcenter/Enumerate-Domain-Trusts-25ecb802 or maybe https://technet.microsoft.com/en-us/library/hh852315(v=wps.630).aspx
 
     Verbose output:
      Use -Verbose to output script progress/status information to console.
@@ -139,7 +143,7 @@ Function New-ADReport
     $UserInactivePasswordDays = 120
   )
 	
-  $str_ScriptVersion = '1.23'
+  $str_ScriptVersion = '1.26'
 
   # Import AD module
   Import-Module ActiveDirectory -Verbose:$False -ErrorAction SilentlyContinue
@@ -156,6 +160,14 @@ Function New-ADReport
   Write-Verbose "- Start Time                  : $time" 
 	
   # Basic AD info
+  Write-Verbose 'Progress: Getting forest info...' 
+  $obj_ADForest = Get-ADForest
+  $str_ADForest_Name = $obj_ADForest.Name
+  $str_ADForest_RootDomain = $obj_ADForest.RootDomain
+  $str_ADForest_ForestMode = $obj_ADForest.ForestMode
+  $str_ADForest_DomainNamingMaster = $obj_ADForest.DomainNamingMaster
+  $str_ADForest_SchemaMaster = $obj_ADForest.SchemaMaster
+
   Write-Verbose 'Progress: Getting domain info...' 
   $obj_ADDomain = Get-ADDomain
   $str_ADDomain_DNSRoot = $obj_ADDomain.DNSRoot
@@ -166,11 +178,14 @@ Function New-ADReport
   $str_ADDomainSID = $obj_ADDomain.DomainSID.Value
   $str_ADDomainComputersContainer = $obj_ADDomain.ComputersContainer
   $str_ADDomainExpectedDefaultComputersContainer = "CN=Computers,$str_ADDomain_DistinguishedName"
-
+  $str_ADDomain_InfrastructureMaster = $obj_ADDomain.InfrastructureMaster
+  $str_ADDomain_PDCEmulator = $obj_ADDomain.PDCEmulator
+  $str_ADDomain_RIDMaster = $obj_ADDomain.RIDMaster
+ 
   # Are we in the Forest Root Domain?
   If ($str_ADDomain_DNSRoot -eq $str_ADDomain_Forest){ $bol_ForestRootDomain = $True } Else { $bol_ForestRootDomain = $False }
 
-  # Do we have compu
+  # Do we have the default Computers container (CN=Computers) in use or not?
   If ($str_ADDomainComputersContainer -eq $str_ADDomainExpectedDefaultComputersContainer){ $bol_ExpectedDefaultComputersContainer = $True } Else { $bol_ExpectedDefaultComputersContainer = $False }
 
   # AD Password Policy info
@@ -189,6 +204,11 @@ Function New-ADReport
   # AD Fine Grained Password Policy info
   Write-Verbose 'Progress: Checking for fine grained password policies...'
   $cnt_ADFineGrainedPwdPolicies = @(Get-ADFineGrainedPasswordPolicy -Filter *).Count
+
+  # Basic AD trust info
+  Write-Verbose 'Progress: Getting AD trust info...' 
+  $obj_ADDomainTrusts = Get-ADObject -Filter {ObjectClass -eq "trustedDomain"} -Properties *
+  If ($obj_ADDomainTrusts) { $cnt_ADDomainTrusts = $obj_ADDomainTrusts.Count } Else { $cnt_ADDomainTrusts = 0 }
 
   # Find Administrator account (500)
   Write-Verbose 'Progress: Finding special accounts...' 
@@ -276,6 +296,7 @@ Function New-ADReport
   $cnt_ADDomainControllers                = 0
   $cnt_ADGlobalCatalogSrv                 = 0
   $cnt_ADComputersContainer_enabled       = 0
+  $cnt_ADComputersContainerCN_enabled     = 0
   $cnt_ADComputersUnknownOS_enabled       = 0
   $cnt_ADComputersWindowsServers_enabled  = 0
   $cnt_ADComputersWindowsClients_enabled  = 0
@@ -283,6 +304,7 @@ Function New-ADReport
   $cnt_ADComputersWindows_enabled         = 0
   $cnt_ADComputersNonWindows_enabled      = 0
   $cnt_ADComputersContainer_disabled      = 0
+  $cnt_ADComputersContainerCN_disabled    = 0
   $cnt_ADComputersUnknownOS_disabled      = 0
   $cnt_ADComputersWindowsServers_disabled = 0
   $cnt_ADComputersWindowsClients_disabled = 0
@@ -337,6 +359,7 @@ Function New-ADReport
   # https://technet.microsoft.com/en-us/library/ee617217.aspx
   $strGlobalCatalogServer = (Get-ADDomainController -Discover -Service "GlobalCatalog").Hostname
   $intGlobalCatalogServerPort = 3268
+
   Write-Verbose "GlobalCatalog used: $($strGlobalCatalogServer):$intGlobalCatalogServerPort"
 
   # Get members of interesting Forest Root Domain groups (only users)
@@ -629,13 +652,20 @@ Function New-ADReport
 
   $cnt_ADComputersWindowsClients_disabled = $cnt_ADComputers_disabled - $cnt_ADComputersUnknownOS_disabled - $cnt_ADComputersWindowsServers_disabled - $cnt_ADComputersNonWindows_disabled
 	
-  # Computer not placed in OUs (and enabled)?
+  # How many computer objects are placed under the Get-ADDomain.ComputersContainer?
   $obj_ADComputersContainer_enabled = @($obj_ADComputers_enabled | Where-Object { $_.DistinguishedName -match $str_ADDomainComputersContainer })
   $obj_ADComputersContainer_disabled = @($obj_ADComputers_disabled | Where-Object { $_.DistinguishedName -match $str_ADDomainComputersContainer })
-	
+
   If ($obj_ADComputersContainer_enabled) { $cnt_ADComputersContainer_enabled = @($obj_ADComputersContainer_enabled).Count }
   If ($obj_ADComputersContainer_disabled) { $cnt_ADComputersContainer_disabled = @($obj_ADComputersContainer_disabled).Count }
-	
+
+  # Get-ADDomain.ComputersContainer might not be the same as the Computers Container (CN=Computers), let's also find out if the built-in CN is also populated with computers (might be redundant work)
+  $obj_ADComputersContainerCN_enabled = @($obj_ADComputers_enabled | Where-Object { $_.DistinguishedName -match $str_ADDomainExpectedDefaultComputersContainer })
+  $obj_ADComputersContainerCN_disabled = @($obj_ADComputers_disabled | Where-Object { $_.DistinguishedName -match $str_ADDomainExpectedDefaultComputersContainer })
+
+  If ($obj_ADComputersContainerCN_enabled) { $cnt_ADComputersContainerCN_enabled = @($obj_ADComputersContainerCN_enabled).Count }
+  If ($obj_ADComputersContainerCN_disabled) { $cnt_ADComputersContainerCN_disabled = @($obj_ADComputersContainerCN_disabled).Count }
+
   Write-Verbose 'Progress: Creating report content...' 
 	
   # Write output / stats
@@ -652,10 +682,19 @@ Basic info:
  - Domain SID                 : $str_ADDomainSID
  - Forest                     : $str_ADDomain_Forest
  - Forest Root Domain         : $bol_ForestRootDomain
- - Domain Mode                : $str_ADDomain_DomainMode
+ - Domain Functional Level    : $str_ADDomain_DomainMode
+ - Forest Functional Level    : $str_ADForest_ForestMode
+ - Number of trusts           : $cnt_ADDomainTrusts
  - Last krbtgt reset          : $str_ADUser_krbtgt_PasswordLastSet
  - Administrator name (500)   : $str_AdministratorUserName
  - Guest name (501)           : $str_GuestUserName
+
+FSMO roles:
+ - DomainNamingMaster (forest): $str_ADForest_DomainNamingMaster
+ - SchemaMaster (forest)      : $str_ADForest_SchemaMaster
+ - InfrastructureMaster       : $str_ADDomain_InfrastructureMaster
+ - PDCEmulator                : $str_ADDomain_PDCEmulator
+ - RIDMaster                  : $str_ADDomain_RIDMaster
 
 Default Domain password policy:
  - ComplexityEnabled          : $str_ADDomainPwdPolicy_ComplexityEnabled
@@ -746,7 +785,8 @@ AD Computers and DC roles:
 
 Clients and Operating systems : [enabled/disabled]
  - Default CompContainer used : $bol_ExpectedDefaultComputersContainer ($str_ADDomainComputersContainer)
- - Below Default CompCont/OU  : $cnt_ADComputersContainer_enabled/$cnt_ADComputersContainer_disabled
+   - Below that Container/OU  : $cnt_ADComputersContainer_enabled/$cnt_ADComputersContainer_disabled
+ - Below CN=Computers Contain.: $cnt_ADComputersContainerCN_enabled/$cnt_ADComputersContainerCN_disabled
  - # of Unknown OS (null)     : $cnt_ADComputersUnknownOS_enabled/$cnt_ADComputersUnknownOS_disabled
  - # of Windows Server family : $cnt_ADComputersWindowsServers_enabled/$cnt_ADComputersWindowsServers_disabled
  - # of Windows Client family : $cnt_ADComputersWindowsClients_enabled/$cnt_ADComputersWindowsClients_disabled
@@ -762,7 +802,7 @@ Clients and Operating systems : [enabled/disabled]
 
   # Dump user information to CSV
   Write-Verbose 'Progress: Dumping user information to CSV...' 
-  If ($DumpFile_UserInfo) { $obj_ADUsers | Select-Object SamAccountName, SID, GivenName, Surname, UserPrincipalName, Description, Enabled, Created, AllowReversiblePasswordEncryption, DoesNotRequirePreAuth, SmartcardLogonRequired, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, PasswordLastSet, PasswordExpired, LastLogonDate, BadLogonCount, LastBadPasswordAttempt, LockedOut, AccountLockoutTime, adminCount, TrustedForDelegation | Export-CSV "ADReport-$str_ADDomain_DNSRoot-$str_FileTimeStamp-Users.csv" -Delimiter "`t" -NoTypeInformation -Encoding UTF8 }
+  If ($DumpFile_UserInfo) { $obj_ADUsers | Select-Object SamAccountName, SID, @{name="SIDHistory";expression={$_.SIDHistory.Value -join ','}}, GivenName, Surname, UserPrincipalName, Description, Enabled, Created, AllowReversiblePasswordEncryption, DoesNotRequirePreAuth, SmartcardLogonRequired, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, PasswordLastSet, PasswordExpired, LastLogonDate, BadLogonCount, LastBadPasswordAttempt, LockedOut, AccountLockoutTime, adminCount, TrustedForDelegation | Export-CSV "ADReport-$str_ADDomain_DNSRoot-$str_FileTimeStamp-Users.csv" -Delimiter "`t" -NoTypeInformation -Encoding UTF8 }
 	
   # Dump privileged user information to CSV
   Write-Verbose 'Progress: Dumping privileged user information to CSV...' 
@@ -770,7 +810,7 @@ Clients and Operating systems : [enabled/disabled]
 	
   # Dump computer information to CSV
   Write-Verbose 'Progress: Dumping computer information to CSV...' 
-  If ($DumpFile_ComputerInfo) { $obj_ADComputers | Select-Object Name, SID, DNSHostName, IPv4Address, IPv6Address, Description, Enabled, Created, AllowReversiblePasswordEncryption, DoesNotRequirePreAuth, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, PasswordLastSet, PasswordExpired, LastLogonDate, BadLogonCount, LastBadPasswordAttempt, LockedOut, AccountLockoutTime, OperatingSystem, OperatingSystemServicePack, OperatingSystemVersion, TrustedForDelegation | Export-CSV "ADReport-$str_ADDomain_DNSRoot-$str_FileTimeStamp-Computers.csv" -Delimiter "`t" -NoTypeInformation -Encoding UTF8 }
+  If ($DumpFile_ComputerInfo) { $obj_ADComputers | Select-Object Name, SID, @{name="SIDHistory";expression={$_.SIDHistory.Value -join ','}}, DNSHostName, IPv4Address, IPv6Address, Description, Enabled, Created, AllowReversiblePasswordEncryption, DoesNotRequirePreAuth, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, PasswordLastSet, PasswordExpired, LastLogonDate, BadLogonCount, LastBadPasswordAttempt, LockedOut, AccountLockoutTime, OperatingSystem, OperatingSystemServicePack, OperatingSystemVersion, TrustedForDelegation | Export-CSV "ADReport-$str_ADDomain_DNSRoot-$str_FileTimeStamp-Computers.csv" -Delimiter "`t" -NoTypeInformation -Encoding UTF8 }
 
   # Dump Text Report
   $ElapsedTimeTotalSeconds = $($(Get-Date) - $time).TotalSeconds
