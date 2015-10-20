@@ -73,6 +73,7 @@
     - 1.24: Fixed Computers Container (CN=Computers) queries
     - 1.25: Basic searches for AD trusts + forest info + FSMO roles
     - 1.26: CR-0006 implemented
+    - 1.27: $cnt_ADComputersWindowsClients_enabled calculation fixed
 
     Tested on:
      - WS 2012 R2 (Set-StrictMode -Version 1.0)
@@ -143,7 +144,7 @@ Function New-ADReport
     $UserInactivePasswordDays = 120
   )
 	
-  $str_ScriptVersion = '1.26'
+  $str_ScriptVersion = '1.27'
 
   # Import AD module
   Import-Module ActiveDirectory -Verbose:$False -ErrorAction SilentlyContinue
@@ -634,7 +635,7 @@ Function New-ADReport
   If ($obj_ADComputersWindows_enabled) { $cnt_ADComputersWindows_enabled = @($obj_ADComputersWindows_enabled).Count }
   $cnt_ADComputersNonWindows_enabled = $cnt_ADComputers_enabled - $cnt_ADComputersWindows_enabled
 
-  $cnt_ADComputersWindowsClients_enabled = $cnt_ADComputers_enabled - $cnt_ADComputersUnknownOS_enabled - $cnt_ADComputersWindowsServers_enabled - $cnt_ADComputersNonWindows_enabled
+  $cnt_ADComputersWindowsClients_enabled = $cnt_ADComputers_enabled - $cnt_ADComputersWindowsServers_enabled - $cnt_ADComputersNonWindows_enabled
 	
   # Operating Systems - disabled
   $obj_ADComputersUnknownOS_disabled = @($obj_ADComputers_disabled | Where-Object { $_.OperatingSystem -eq $null })
