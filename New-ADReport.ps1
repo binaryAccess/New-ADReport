@@ -57,7 +57,7 @@
   .NOTES
     Authored by    : Jakob H. Heidelberg / @JakobHeidelberg
     Date created   : 01/10-2014
-    Last modified  : 07/10-2015
+    Last modified  : 20/10-2015
 
     Version history:
     - 1.14: Initial version for PS 3.0
