@@ -57,7 +57,7 @@
   .NOTES
     Authored by    : Jakob H. Heidelberg / @JakobHeidelberg
     Date created   : 01/10-2014
-    Last modified  : 20/10-2015
+    Last modified  : 17/05-2016
 
     Version history:
     - 1.14: Initial version for PS 3.0
@@ -74,6 +74,7 @@
     - 1.25: Basic searches for AD trusts + forest info + FSMO roles
     - 1.26: CR-0006 implemented
     - 1.27: $cnt_ADComputersWindowsClients_enabled calculation fixed
+    - 1.28: $strGlobalCatalogServer changed detection for better PSdrive support
 
     Tested on:
      - WS 2012 R2 (Set-StrictMode -Version 1.0)
@@ -84,6 +85,7 @@
      - WS 2008 R2 (Native PS 3.0)
      - Windows 7 SP1 w/RSAT (PS 2.0)
      - Winodws 8.1 w/RSAT
+     - Windows 10 w/RSAT
 
     Known Issues & possible solutions:
      KI-0001: Code is not pretty and can be optimized in several ways.
@@ -144,7 +146,7 @@ Function New-ADReport
     $UserInactivePasswordDays = 120
   )
 	
-  $str_ScriptVersion = '1.27'
+  $str_ScriptVersion = '1.28'
 
   # Import AD module
   Import-Module ActiveDirectory -Verbose:$False -ErrorAction SilentlyContinue
@@ -358,7 +360,7 @@ Function New-ADReport
 
   # We need a Global Catalog in case we deal with multiple domains
   # https://technet.microsoft.com/en-us/library/ee617217.aspx
-  $strGlobalCatalogServer = (Get-ADDomainController -Discover -Service "GlobalCatalog").Hostname
+  $strGlobalCatalogServer = (Get-ADDomainController -Discover -Service "GlobalCatalog" -DomainName $str_ADDomain_DNSRoot).Hostname
   $intGlobalCatalogServerPort = 3268
 
   Write-Verbose "GlobalCatalog used: $($strGlobalCatalogServer):$intGlobalCatalogServerPort"
