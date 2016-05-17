@@ -363,7 +363,7 @@ Function New-ADReport
 
   # We need a Global Catalog in case we deal with multiple domains
   # https://technet.microsoft.com/en-us/library/ee617217.aspx
-  $strGlobalCatalogServer = (Get-ADDomainController -Discover -Service "GlobalCatalog" -DomainName $str_ADDomain_DNSRoot).Hostname
+  $strGlobalCatalogServer = (Get-ADDomainController -Discover -Service "GlobalCatalog" -DomainName $str_ADDomain_Forest).Hostname
   $intGlobalCatalogServerPort = 3268
 
   Write-Verbose "GlobalCatalog used: $($strGlobalCatalogServer):$intGlobalCatalogServerPort"
