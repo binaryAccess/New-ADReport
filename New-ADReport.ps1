@@ -74,7 +74,7 @@
     - 1.25: Basic searches for AD trusts + forest info + FSMO roles
     - 1.26: CR-0006 implemented
     - 1.27: $cnt_ADComputersWindowsClients_enabled calculation fixed
-    - 1.28: $strGlobalCatalogServer changed detection for better PSdrive support
+    - 1.28: $strGlobalCatalogServer detection changed & $strScriptPath implemented for better PSdrive support
 
     Tested on:
      - WS 2012 R2 (Set-StrictMode -Version 1.0)
@@ -158,6 +158,9 @@ Function New-ADReport
   $time = Get-Date
   $str_FileTimeStamp = Get-Date -format 'yyyyMMddHHmmss'
 
+  # Get current script execution directory (for output files)
+  $strScriptPath = split-path -parent $MyInvocation.MyCommand.Definition
+  
   Write-Verbose "New-ADReport version          : $str_ScriptVersion" 
   Write-Verbose "- File Time Stamp             : $str_FileTimeStamp" 
   Write-Verbose "- Start Time                  : $time" 
@@ -805,20 +808,20 @@ Clients and Operating systems : [enabled/disabled]
 
   # Dump user information to CSV
   Write-Verbose 'Progress: Dumping user information to CSV...' 
-  If ($DumpFile_UserInfo) { $obj_ADUsers | Select-Object SamAccountName, SID, @{name="SIDHistory";expression={$_.SIDHistory.Value -join ','}}, GivenName, Surname, UserPrincipalName, Description, Enabled, Created, AllowReversiblePasswordEncryption, DoesNotRequirePreAuth, SmartcardLogonRequired, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, PasswordLastSet, PasswordExpired, LastLogonDate, BadLogonCount, LastBadPasswordAttempt, LockedOut, AccountLockoutTime, adminCount, TrustedForDelegation | Export-CSV "ADReport-$str_ADDomain_DNSRoot-$str_FileTimeStamp-Users.csv" -Delimiter "`t" -NoTypeInformation -Encoding UTF8 }
+  If ($DumpFile_UserInfo) { $obj_ADUsers | Select-Object SamAccountName, SID, @{name="SIDHistory";expression={$_.SIDHistory.Value -join ','}}, GivenName, Surname, UserPrincipalName, Description, Enabled, Created, AllowReversiblePasswordEncryption, DoesNotRequirePreAuth, SmartcardLogonRequired, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, PasswordLastSet, PasswordExpired, LastLogonDate, BadLogonCount, LastBadPasswordAttempt, LockedOut, AccountLockoutTime, adminCount, TrustedForDelegation | Export-CSV "$strScriptPath\ADReport-$str_ADDomain_DNSRoot-$str_FileTimeStamp-Users.csv" -Delimiter "`t" -NoTypeInformation -Encoding UTF8 }
 	
   # Dump privileged user information to CSV
   Write-Verbose 'Progress: Dumping privileged user information to CSV...' 
-  If ($DumpFile_PrivilegedUserInfo) { $obj_ADUsersPrivileged_all | Select-Object SamAccountName, SID, distinguishedName, objectClass | Export-CSV "ADReport-$str_ADDomain_DNSRoot-$str_FileTimeStamp-PrivilegedUsers.csv" -Delimiter "`t" -NoTypeInformation -Encoding UTF8 }
+  If ($DumpFile_PrivilegedUserInfo) { $obj_ADUsersPrivileged_all | Select-Object SamAccountName, SID, distinguishedName, objectClass | Export-CSV "$strScriptPath\ADReport-$str_ADDomain_DNSRoot-$str_FileTimeStamp-PrivilegedUsers.csv" -Delimiter "`t" -NoTypeInformation -Encoding UTF8 }
 	
   # Dump computer information to CSV
   Write-Verbose 'Progress: Dumping computer information to CSV...' 
-  If ($DumpFile_ComputerInfo) { $obj_ADComputers | Select-Object Name, SID, @{name="SIDHistory";expression={$_.SIDHistory.Value -join ','}}, DNSHostName, IPv4Address, IPv6Address, Description, Enabled, Created, AllowReversiblePasswordEncryption, DoesNotRequirePreAuth, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, PasswordLastSet, PasswordExpired, LastLogonDate, BadLogonCount, LastBadPasswordAttempt, LockedOut, AccountLockoutTime, OperatingSystem, OperatingSystemServicePack, OperatingSystemVersion, TrustedForDelegation | Export-CSV "ADReport-$str_ADDomain_DNSRoot-$str_FileTimeStamp-Computers.csv" -Delimiter "`t" -NoTypeInformation -Encoding UTF8 }
+  If ($DumpFile_ComputerInfo) { $obj_ADComputers | Select-Object Name, SID, @{name="SIDHistory";expression={$_.SIDHistory.Value -join ','}}, DNSHostName, IPv4Address, IPv6Address, Description, Enabled, Created, AllowReversiblePasswordEncryption, DoesNotRequirePreAuth, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, PasswordLastSet, PasswordExpired, LastLogonDate, BadLogonCount, LastBadPasswordAttempt, LockedOut, AccountLockoutTime, OperatingSystem, OperatingSystemServicePack, OperatingSystemVersion, TrustedForDelegation | Export-CSV "$strScriptPath\ADReport-$str_ADDomain_DNSRoot-$str_FileTimeStamp-Computers.csv" -Delimiter "`t" -NoTypeInformation -Encoding UTF8 }
 
   # Dump Text Report
   $ElapsedTimeTotalSeconds = $($(Get-Date) - $time).TotalSeconds
   $str_ReportText += "[Elapsed Time: $ElapsedTimeTotalSeconds seconds]" 
-  $str_ReportText | Out-File "ADReport-$str_ADDomain_DNSRoot-$str_FileTimeStamp-Report.txt"
+  $str_ReportText | Out-File "$strScriptPath\ADReport-$str_ADDomain_DNSRoot-$str_FileTimeStamp-Report.txt"
 	
   # Finalize
   If ($WriteHost_FinalReport) { Write-Host $str_ReportText }
