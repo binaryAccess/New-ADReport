@@ -57,7 +57,7 @@
   .NOTES
     Authored by    : Jakob H. Heidelberg / @JakobHeidelberg
     Date created   : 01/10-2014
-    Last modified  : 17/05-2016
+    Last modified  : 19/04-2018
 
     Version history:
     - 1.14: Initial version for PS 3.0
@@ -75,8 +75,10 @@
     - 1.26: CR-0006 implemented
     - 1.27: $cnt_ADComputersWindowsClients_enabled calculation fixed
     - 1.28: $strGlobalCatalogServer detection changed and $PSScriptRoot implemented for PSdrive support (incl. directory for output files)
+    - 1.29: LDAPs checks + PSScriptRoot path
 
     Tested on:
+     - WS 2016
      - WS 2012 R2 (Set-StrictMode -Version 1.0)
      - WS 2012 R2 (Set-StrictMode -Version 2.0)
      - WS 2012 R2 (Set-StrictMode -Version 3.0)
@@ -146,7 +148,7 @@ Function New-ADReport
     $UserInactivePasswordDays = 120
   )
 	
-  $str_ScriptVersion = '1.28'
+  $str_ScriptVersion = '1.29'
 
   # Import AD module
   Import-Module ActiveDirectory -Verbose:$False -ErrorAction SilentlyContinue
@@ -159,7 +161,7 @@ Function New-ADReport
   $str_FileTimeStamp = Get-Date -format 'yyyyMMddHHmmss'
 
   # Get current script execution directory (for output files)
-  If(!$PSScriptRoot){$PSScriptRoot = Split-Path $MyInvocation.MyCommand.Path -Parent}
+  If(!$PSScriptRoot){$PSScriptRoot = Split-Path $script:MyInvocation.MyCommand.Path -Parent}
 
   Write-Verbose "New-ADReport version          : $str_ScriptVersion" 
   Write-Verbose "- File Time Stamp             : $str_FileTimeStamp" 
@@ -173,6 +175,7 @@ Function New-ADReport
   $str_ADForest_ForestMode = $obj_ADForest.ForestMode
   $str_ADForest_DomainNamingMaster = $obj_ADForest.DomainNamingMaster
   $str_ADForest_SchemaMaster = $obj_ADForest.SchemaMaster
+  $obj_ADForestDCs = ($obj_ADForest).Domains | %{ Get-ADDomainController -Filter * -Server $_ }
 
   Write-Verbose 'Progress: Getting domain info...' 
   $obj_ADDomain = Get-ADDomain
@@ -672,7 +675,76 @@ Function New-ADReport
   If ($obj_ADComputersContainerCN_enabled) { $cnt_ADComputersContainerCN_enabled = @($obj_ADComputersContainerCN_enabled).Count }
   If ($obj_ADComputersContainerCN_disabled) { $cnt_ADComputersContainerCN_disabled = @($obj_ADComputersContainerCN_disabled).Count }
 
-  Write-Verbose 'Progress: Creating report content...' 
+  # Check LDAP+LDAPS for all DCs in the forest
+  Write-Verbose 'Progress: Check LDAP+LDAPS for all DCs in the forest...'
+  $int_ADForestDCs = $obj_ADForestDCs.Count
+  
+  $int_ADForestDCsWithLDAP     = 0
+  $int_ADForestDCsWithoutLDAP  = 0
+  $int_ADForestDCsWithLDAPS    = 0
+  $int_ADForestDCsWithoutLDAPS = 0
+
+  $str_ADForestDCsWithLDAP     = ""
+  $str_ADForestDCsWithoutLDAP  = ""
+  $str_ADForestDCsWithLDAPS    = ""
+  $str_ADForestDCsWithoutLDAPS = ""
+
+  ForEach ($obj_ADForestDC in $obj_ADForestDCs)
+    {
+        $strDCHostName = $obj_ADForestDC.HostName
+        Write-Verbose "- Test LDAP: '$strDCHostName'"
+ 
+        $LDAP = [ADSI]"LDAP://$($strDCHostName):389"
+        $LDAPS = [ADSI]"LDAP://$($strDCHostName):636"
+ 
+        # First we check regular LDAP
+        try
+        {
+            $LDAPConnection = [adsi]($LDAP)
+        }
+        Catch
+        {
+        }  
+        If ($LDAPConnection.Path)
+        {
+            Write-Verbose "- LDAP connection to $($LDAP.Path) completed with success."
+            $int_ADForestDCsWithLDAP++
+            $str_ADForestDCsWithLDAP += "$strDCHostName`r`n                                "
+        }
+        Else
+        {
+            Write-Verbose "- LDAP connection (TCP 389) to LDAP://$strDCHostName did not work."
+            $int_ADForestDCsWithoutLDAP++
+            $str_ADForestDCsWithoutLDAP += "$strDCHostName`r`n                                "
+        }
+ 
+        # Next we check LDAPS
+        try
+        {
+            $LDAPSConnection = [adsi]($LDAPS)
+        }
+        Catch
+        {
+        }
+        If ($LDAPSConnection.Path)
+        {
+            Write-Verbose "- LDAPS connection to $($LDAPS.Path) completed with success."
+            $int_ADForestDCsWithLDAPS++
+            $str_ADForestDCsWithLDAPS += "$strDCHostName`r`n                                "
+        }
+        Else
+        {
+            Write-Verbose "- LDAPS connection (TCP 636) to LDAP://$dcname did not work."
+            $int_ADForestDCsWithoutLDAPS++
+            $str_ADForestDCsWithoutLDAPS += "$strDCHostName`r`n                                "
+        }
+    }
+
+  $str_ADForestDCsWithoutLDAP  = $str_ADForestDCsWithoutLDAP -replace ".$"
+  $str_ADForestDCsWithoutLDAPS = $str_ADForestDCsWithoutLDAPS -replace ".$"
+
+  # Create report content
+  Write-Verbose 'Progress: Creating report content...'
 	
   # Write output / stats
   $Str_ReportText = @"
@@ -701,6 +773,16 @@ FSMO roles:
  - InfrastructureMaster       : $str_ADDomain_InfrastructureMaster
  - PDCEmulator                : $str_ADDomain_PDCEmulator
  - RIDMaster                  : $str_ADDomain_RIDMaster
+
+LDAP test:                     [with/without/total]
+ - Domain Controllers w/LDAP  : $int_ADForestDCsWithLDAP/$int_ADForestDCsWithoutLDAP/$int_ADForestDCs
+   - List of DCs w/LDAP       : $str_ADForestDCsWithLDAP
+   - List of DCs wo/LDAP      : $str_ADForestDCsWithoutLDAP
+
+LDAPS test:                    [with/without/total]
+ - Domain Controllers w/LDAPS : $int_ADForestDCsWithLDAPS/$int_ADForestDCsWithoutLDAPS/$int_ADForestDCs
+   - List of DCs w/LDAPS      : $str_ADForestDCsWithLDAPS
+   - List of DCs wo/LDAPS     : $str_ADForestDCsWithoutLDAPS
 
 Default Domain password policy:
  - ComplexityEnabled          : $str_ADDomainPwdPolicy_ComplexityEnabled
@@ -827,3 +909,5 @@ Clients and Operating systems : [enabled/disabled]
   If ($WriteHost_FinalReport) { Write-Host $str_ReportText }
   Else { Write-Verbose "Complete: $ElapsedTimeTotalSeconds seconds." }
 }
+
+New-ADReport -Verbose -WriteHost_FinalReport
