@@ -653,8 +653,6 @@ Function New-ADReport
   If ($obj_ADComputersServers_enabled) { $cnt_ADComputersWindowsServers_enabled = @($obj_ADComputersServers_enabled).Count }
   If ($obj_ADComputersWinXP_enabled) { $cnt_ADComputersWinXP_enabled = @($obj_ADComputersWinXP_enabled).Count }
   If ($obj_ADComputersServer2003_enabled) { $cnt_ADComputersServer2003_enabled = @($obj_ADComputersServer2003_enabled).Count }
-  write-verbose $cnt_ADComputersWinXP_enabled
-  write-verbose $cnt_ADComputersServer2003_enabled
 
   # Windows vs Non-Windows - enabled
   $obj_ADComputersWindows_enabled = @($obj_ADComputers_enabled | Where-Object { $_.OperatingSystem -like '*Windows*' })
@@ -673,7 +671,6 @@ Function New-ADReport
   If ($obj_ADComputersServers_disabled) { $cnt_ADComputersWindowsServers_disabled = @($obj_ADComputersServers_disabled).Count }
   If ($obj_ADComputersWinXP_disabled) { $cnt_ADComputersWinXP_disabled = @($obj_ADComputersWinXP_disabled).Count }
   If ($obj_ADComputersServer2003_disabled) { $cnt_ADComputersServer2003_disabled = @($obj_ADComputersServer2003_disabled).Count }
-  write-host $cnt_ADComputersServer2003_disabled
 
    # Windows vs Non-Windows - disabled
   $obj_ADComputersWindows_disabled = @($obj_ADComputers_disabled | Where-Object { $_.OperatingSystem -like '*Windows*' })
