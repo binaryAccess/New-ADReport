@@ -169,7 +169,7 @@ Function New-ADReport
   $str_FileTimeStamp = Get-Date -format 'yyyyMMddHHmmss'
 
   # Get current script execution directory (for output files)
-  If(!$PSScriptRoot){$PSScriptRoot = Split-Path $script:MyInvocation.MyCommand.Path -Parent}
+  If(!$PSScriptRoot){$PSScriptRoot = (Get-Item -Path ".\").FullName}
 
   
   Write-Verbose "Scan AD version               : $str_ScriptVersion" 
