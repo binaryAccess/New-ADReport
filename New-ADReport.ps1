@@ -56,8 +56,9 @@
 
   .NOTES
     Authored by    : Jakob H. Heidelberg / @JakobHeidelberg
+    Fixes by       : Slavi Parpulev
     Date created   : 01/10-2014
-    Last modified  : 19/04-2018
+    Last modified  : 29/09-2018
 
     Version history:
     - 1.14: Initial version for PS 3.0
@@ -76,6 +77,7 @@
     - 1.27: $cnt_ADComputersWindowsClients_enabled calculation fixed
     - 1.28: $strGlobalCatalogServer detection changed and $PSScriptRoot implemented for PSdrive support (incl. directory for output files)
     - 1.29: LDAPs checks + PSScriptRoot path
+    - 1.30 Added check for Server 2003 and support for specifying domain to run against
 
     Tested on:
      - WS 2016
@@ -88,6 +90,7 @@
      - Windows 7 SP1 w/RSAT (PS 2.0)
      - Winodws 8.1 w/RSAT
      - Windows 10 w/RSAT
+     - WS 2012 (Native PS 4.0)
 
     Known Issues & possible solutions:
      KI-0001: Code is not pretty and can be optimized in several ways.
@@ -122,6 +125,10 @@ Function New-ADReport
   [CmdletBinding()]
   param
   (
+    [Parameter(HelpMessage = 'Domain to enumerate')]
+    [ValidateNotNullOrEmpty()]
+    [String]
+    $Server = $env:USERDNSDOMAIN,
     [Parameter(HelpMessage = 'Create dump file with computer info')]
     [switch]
     $DumpFile_ComputerInfo,
@@ -148,25 +155,27 @@ Function New-ADReport
     $UserInactivePasswordDays = 120
   )
 	
-  $str_ScriptVersion = '1.29'
+  $str_ScriptVersion = '1.30'
 
+  
   # Import AD module
   Import-Module ActiveDirectory -Verbose:$False -ErrorAction SilentlyContinue
-
+  
   $CheckADModule = Get-Module -List ActiveDirectory
   If (!$CheckADModule) { Write-Verbose "Error: No ActiveDirectory module loaded. Will Break!"; Break } #Quit?
 
-  # Get date/time stamp
+   # Get date/time stamp
   $time = Get-Date
   $str_FileTimeStamp = Get-Date -format 'yyyyMMddHHmmss'
 
   # Get current script execution directory (for output files)
-  If(!$PSScriptRoot){$PSScriptRoot = Split-Path $script:MyInvocation.MyCommand.Path -Parent}
+  If(!$PSScriptRoot){$PSScriptRoot = (Get-Item -Path ".\").FullName}
 
-  Write-Verbose "New-ADReport version          : $str_ScriptVersion" 
+  
+  Write-Verbose "Scan AD version               : $str_ScriptVersion" 
   Write-Verbose "- File Time Stamp             : $str_FileTimeStamp" 
-  Write-Verbose "- Start Time                  : $time" 
-	
+  Write-Verbose "- Start Time                  : $time"
+
   # Basic AD info
   Write-Verbose 'Progress: Getting forest info...' 
   $obj_ADForest = Get-ADForest
@@ -178,7 +187,7 @@ Function New-ADReport
   $obj_ADForestDCs = ($obj_ADForest).Domains | %{ Get-ADDomainController -Filter * -Server $_ }
 
   Write-Verbose 'Progress: Getting domain info...' 
-  $obj_ADDomain = Get-ADDomain
+  $obj_ADDomain = Get-ADDomain -Server $Server
   $str_ADDomain_DNSRoot = $obj_ADDomain.DNSRoot
   $str_ADDomain_NetBIOSName = $obj_ADDomain.NetBIOSName
   $str_ADDomain_Forest = $obj_ADDomain.Forest
@@ -190,7 +199,7 @@ Function New-ADReport
   $str_ADDomain_InfrastructureMaster = $obj_ADDomain.InfrastructureMaster
   $str_ADDomain_PDCEmulator = $obj_ADDomain.PDCEmulator
   $str_ADDomain_RIDMaster = $obj_ADDomain.RIDMaster
- 
+
   # Are we in the Forest Root Domain?
   If ($str_ADDomain_DNSRoot -eq $str_ADDomain_Forest){ $bol_ForestRootDomain = $True } Else { $bol_ForestRootDomain = $False }
 
@@ -199,7 +208,7 @@ Function New-ADReport
 
   # AD Password Policy info
   Write-Verbose 'Progress: Getting default domain password policy...' 
-  $obj_ADDomainPwdPolicy = Get-ADDefaultDomainPasswordPolicy
+  $obj_ADDomainPwdPolicy = Get-ADDefaultDomainPasswordPolicy -Server $Server
   $str_ADDomainPwdPolicy_ComplexityEnabled = $obj_ADDomainPwdPolicy.ComplexityEnabled
   $str_ADDomainPwdPolicy_LockoutDuration = $obj_ADDomainPwdPolicy.LockoutDuration
   $str_ADDomainPwdPolicy_LockoutObservationWindow = $obj_ADDomainPwdPolicy.LockoutObservationWindow
@@ -212,25 +221,26 @@ Function New-ADReport
 
   # AD Fine Grained Password Policy info
   Write-Verbose 'Progress: Checking for fine grained password policies...'
-  $cnt_ADFineGrainedPwdPolicies = @(Get-ADFineGrainedPasswordPolicy -Filter *).Count
+  $cnt_ADFineGrainedPwdPolicies = @(Get-ADFineGrainedPasswordPolicy -Server $Server -Filter *).Count
 
   # Basic AD trust info
   Write-Verbose 'Progress: Getting AD trust info...' 
-  $obj_ADDomainTrusts = Get-ADObject -Filter {ObjectClass -eq "trustedDomain"} -Properties *
+  $obj_ADDomainTrusts = Get-ADObject -Server $Server -Filter {ObjectClass -eq "trustedDomain"} -Properties *
   If ($obj_ADDomainTrusts) { $cnt_ADDomainTrusts = $obj_ADDomainTrusts.Count } Else { $cnt_ADDomainTrusts = 0 }
 
   # Find Administrator account (500)
   Write-Verbose 'Progress: Finding special accounts...' 
   $obj_AdministratorSID = New-Object System.Security.Principal.SecurityIdentifier ("$str_ADDomainSID-500")
   $str_AdministratorUserName = $obj_AdministratorSID.Translate([System.Security.Principal.NTAccount]).Value
-	
-  # Find Administrator account (500)
+
+   # Find Guest account (501)
   $obj_GuestSID = New-Object System.Security.Principal.SecurityIdentifier ("$str_ADDomainSID-501")
   $str_GuestUserName = $obj_GuestSID.Translate([System.Security.Principal.NTAccount]).Value
-	
+
   # Basic krbtgt info
-  $str_ADUser_krbtgt_PasswordLastSet = (Get-ADUser krbtgt -Properties PasswordLastSet).PasswordLastSet
-	
+  $str_ADUser_krbtgt_PasswordLastSet = (Get-ADUser -Server $Server krbtgt -Properties PasswordLastSet).PasswordLastSet
+
+
   # Initialize user counters (set to zero for report to look nice)
   $cnt_ADUsers                            = 0
   $cnt_ADUsers_enabled                    = 0
@@ -310,6 +320,7 @@ Function New-ADReport
   $cnt_ADComputersWindowsServers_enabled  = 0
   $cnt_ADComputersWindowsClients_enabled  = 0
   $cnt_ADComputersWinXP_enabled           = 0
+  $cnt_ADComputersServer2003_enabled      = 0
   $cnt_ADComputersWindows_enabled         = 0
   $cnt_ADComputersNonWindows_enabled      = 0
   $cnt_ADComputersContainer_disabled      = 0
@@ -318,34 +329,36 @@ Function New-ADReport
   $cnt_ADComputersWindowsServers_disabled = 0
   $cnt_ADComputersWindowsClients_disabled = 0
   $cnt_ADComputersWinXP_disabled          = 0
+  $cnt_ADComputersServer2003_disabled     = 0
   $cnt_ADComputersWindows_disabled        = 0
   $cnt_ADComputersNonWindows_disabled     = 0
+
 
   # ================= #
   # Gather AD objects #
   # ================= #
-	
+
   # Get AD users + count
   Write-Verbose 'Progress: Getting AD users...' 
-  $obj_ADUsers = @(Get-ADUser -Filter * -Properties SamAccountName, SID, SIDHistory, GivenName, Surname, UserPrincipalName, Description, Enabled, Created, AllowReversiblePasswordEncryption, DoesNotRequirePreAuth, SmartcardLogonRequired, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, PasswordLastSet, PasswordExpired, LastLogonDate, BadLogonCount, LastBadPasswordAttempt, LockedOut, AccountLockoutTime, adminCount, TrustedForDelegation)
+  $obj_ADUsers = @(Get-ADUser -Server $Server -Filter * -Properties SamAccountName, SID, SIDHistory, GivenName, Surname, UserPrincipalName, Description, Enabled, Created, AllowReversiblePasswordEncryption, DoesNotRequirePreAuth, SmartcardLogonRequired, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, PasswordLastSet, PasswordExpired, LastLogonDate, BadLogonCount, LastBadPasswordAttempt, LockedOut, AccountLockoutTime, adminCount, TrustedForDelegation)
   $cnt_ADUsers = @($obj_ADUsers).Count
 
   # Get AD computers + count
   Write-Verbose 'Progress: Getting AD computers...' 
-  $obj_ADComputers = @(Get-ADComputer -Filter * -Properties Name, SID, SIDHistory, DNSHostName, IPv4Address, IPv6Address, Description, Enabled, Created, AllowReversiblePasswordEncryption, DoesNotRequirePreAuth, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, PasswordLastSet, PasswordExpired, LastLogonDate, BadLogonCount, LastBadPasswordAttempt, LockedOut, AccountLockoutTime, OperatingSystem, OperatingSystemServicePack, OperatingSystemVersion, TrustedForDelegation)
+  $obj_ADComputers = @(Get-ADComputer -Server $Server -Filter * -Properties Name, SID, SIDHistory, DNSHostName, IPv4Address, IPv6Address, Description, Enabled, Created, AllowReversiblePasswordEncryption, DoesNotRequirePreAuth, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, PasswordLastSet, PasswordExpired, LastLogonDate, BadLogonCount, LastBadPasswordAttempt, LockedOut, AccountLockoutTime, OperatingSystem, OperatingSystemServicePack, OperatingSystemVersion, TrustedForDelegation)
   $cnt_ADComputers = @($obj_ADComputers).Count
-	
+
   Write-Verbose 'Progress: Getting DC information...' 
-  $cnt_ADDomainControllers = @(Get-ADDomainController -Filter *).Count
-  $cnt_ADGlobalCatalogSrv = @(Get-ADDomainController -Filter { IsGlobalCatalog -eq $True }).Count
-	
+  $cnt_ADDomainControllers = @(Get-ADDomainController -Server $Server -Filter *).Count
+  $cnt_ADGlobalCatalogSrv = @(Get-ADDomainController -Server $Server -Filter { IsGlobalCatalog -eq $True }).Count
+
   # Get enabled AD objects + count
   Write-Verbose 'Progress: Getting enabled AD accounts...' 
   $obj_ADUsers_enabled = $obj_ADUsers | Where-Object { $_.Enabled -eq $True }
   $cnt_ADUsers_enabled = @($obj_ADUsers_enabled).Count
   $obj_ADComputers_enabled = $obj_ADComputers | Where-Object { $_.Enabled -eq $True }
   $cnt_ADComputers_enabled = @($obj_ADComputers_enabled).Count
-	
+
   # Get disabled AD objects + count
   Write-Verbose 'Progress: Getting disabled AD accounts...' 
   $obj_ADUsers_disabled = $obj_ADUsers | Where-Object { $_.Enabled -eq $False }
@@ -353,8 +366,8 @@ Function New-ADReport
 	
   $obj_ADComputers_disabled = $obj_ADComputers | Where-Object { $_.Enabled -eq $False }
   If ($obj_ADComputers_disabled) { $cnt_ADComputers_disabled = @($obj_ADComputers_disabled).Count }
-	
-  # ================= #
+
+   # ================= #
   # AD group analysis #
   # ================= #
 
@@ -371,40 +384,41 @@ Function New-ADReport
 
   Write-Verbose "GlobalCatalog used: $($strGlobalCatalogServer):$intGlobalCatalogServerPort"
 
+
   # Get members of interesting Forest Root Domain groups (only users)
   If ($bol_ForestRootDomain)
   {
     # Look for users only
-    $obj_ADGroupEnterpriseAdmins = @(Get-ADGroupMember -Identity $str_ADDomainSID-519 -Recursive | Where-Object { $_.objectClass -eq 'user' })        # Enterprise Admins
-    $obj_ADGroupSchemaAdmins = @(Get-ADGroupMember -Identity $str_ADDomainSID-518 -Recursive | Where-Object { $_.objectClass -eq 'user' })            # Schema Admins
+    $obj_ADGroupEnterpriseAdmins = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-519 -Recursive | Where-Object { $_.objectClass -eq 'user' })        # Enterprise Admins
+    $obj_ADGroupSchemaAdmins = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-518 -Recursive | Where-Object { $_.objectClass -eq 'user' })            # Schema Admins
 
     # Look for non-users
-    $obj_ADGroupEnterpriseAdminsNonUser = @(Get-ADGroupMember -Identity $str_ADDomainSID-519 -Recursive | Where-Object { $_.objectClass -ne 'user' }) # Enterprise Admins
-    $obj_ADGroupSchemaAdminsNonUser = @(Get-ADGroupMember -Identity $str_ADDomainSID-518 -Recursive | Where-Object { $_.objectClass -ne 'user' })     # Schema Admins
+    $obj_ADGroupEnterpriseAdminsNonUser = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-519 -Recursive | Where-Object { $_.objectClass -ne 'user' }) # Enterprise Admins
+    $obj_ADGroupSchemaAdminsNonUser = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-518 -Recursive | Where-Object { $_.objectClass -ne 'user' })     # Schema Admins
   }
 
   # Get members of interesting groups (only users)
-  $obj_ADGroupAdministrators = @(Get-ADGroupMember -Identity S-1-5-32-544 -Recursive | Where-Object { $_.objectClass -eq 'user' })                  # Administrators
-  $obj_ADGroupDomainAdmins = @(Get-ADGroupMember -Identity $str_ADDomainSID-512 -Recursive | Where-Object { $_.objectClass -eq 'user' })            # Domain Admins
-  $obj_ADGroupAccountOperators = @(Get-ADGroupMember -Identity S-1-5-32-548 -Recursive | Where-Object { $_.objectClass -eq 'user' })                # Account Operators
-  $obj_ADGroupServerOperators = @(Get-ADGroupMember -Identity S-1-5-32-549 -Recursive | Where-Object { $_.objectClass -eq 'user' })                 # Server Operators
-  $obj_ADGroupBackupOperators = @(Get-ADGroupMember -Identity S-1-5-32-551 -Recursive | Where-Object { $_.objectClass -eq 'user' })                 # Backup Operators
-  $obj_ADGroupPrintOperators = @(Get-ADGroupMember -Identity S-1-5-32-550 -Recursive | Where-Object { $_.objectClass -eq 'user' })                  # Print Operators
-  $obj_ADGroupGuests = @(Get-ADGroupMember -Identity S-1-5-32-546 -Recursive | Where-Object { $_.objectClass -eq 'user' })                          # Guests
-  $obj_ADGroupCertPublishers = @(Get-ADGroupMember -Identity $str_ADDomainSID-517 -Recursive | Where-Object { $_.objectClass -eq 'user' })          # Cert Publishers (OK to have non-user members)
-  $obj_ADGroupGPCreatorOwners = @(Get-ADGroupMember -Identity $str_ADDomainSID-520 -Recursive | Where-Object { $_.objectClass -eq 'user' })         # Group Policy Creator Owners
-  $obj_ADGroupDnsAdmins = @(Get-ADGroupMember -Identity "DnsAdmins" -Recursive | Where-Object { $_.objectClass -eq 'user' })                        # DnsAdmins
+  $obj_ADGroupAdministrators = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-544 -Recursive | Where-Object { $_.objectClass -eq 'user' })                  # Administrators
+  $obj_ADGroupDomainAdmins = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-512 -Recursive | Where-Object { $_.objectClass -eq 'user' })            # Domain Admins
+  $obj_ADGroupAccountOperators = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-548 -Recursive | Where-Object { $_.objectClass -eq 'user' })                # Account Operators
+  $obj_ADGroupServerOperators = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-549 -Recursive | Where-Object { $_.objectClass -eq 'user' })                 # Server Operators
+  $obj_ADGroupBackupOperators = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-551 -Recursive | Where-Object { $_.objectClass -eq 'user' })                 # Backup Operators
+  $obj_ADGroupPrintOperators = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-550 -Recursive | Where-Object { $_.objectClass -eq 'user' })                  # Print Operators
+  $obj_ADGroupGuests = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-546 -Recursive | Where-Object { $_.objectClass -eq 'user' })                          # Guests
+  $obj_ADGroupCertPublishers = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-517 -Recursive | Where-Object { $_.objectClass -eq 'user' })          # Cert Publishers (OK to have non-user members)
+  $obj_ADGroupGPCreatorOwners = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-520 -Recursive | Where-Object { $_.objectClass -eq 'user' })         # Group Policy Creator Owners
+  $obj_ADGroupDnsAdmins = @(Get-ADGroupMember -Server $Server -Identity "DnsAdmins" -Recursive | Where-Object { $_.objectClass -eq 'user' })                        # DnsAdmins
   
 
   # Get members of interesting groups (non-users)
-  $obj_ADGroupAdministratorsNonUser = @(Get-ADGroupMember -Identity S-1-5-32-544 -Recursive | Where-Object { $_.objectClass -ne 'user' })           # Administrators
-  $obj_ADGroupDomainAdminsNonUser = @(Get-ADGroupMember -Identity $str_ADDomainSID-512 -Recursive | Where-Object { $_.objectClass -ne 'user' })     # Domain Admins
-  $obj_ADGroupAccountOperatorsNonUser = @(Get-ADGroupMember -Identity S-1-5-32-548 -Recursive | Where-Object { $_.objectClass -ne 'user' })         # Account Operators
-  $obj_ADGroupServerOperatorsNonUser = @(Get-ADGroupMember -Identity S-1-5-32-549 -Recursive | Where-Object { $_.objectClass -ne 'user' })          # Server Operators
-  $obj_ADGroupBackupOperatorsNonUser = @(Get-ADGroupMember -Identity S-1-5-32-551 -Recursive | Where-Object { $_.objectClass -ne 'user' })          # Backup Operators
-  $obj_ADGroupPrintOperatorsNonUser = @(Get-ADGroupMember -Identity S-1-5-32-550 -Recursive | Where-Object { $_.objectClass -ne 'user' })           # Print Operators
-  $obj_ADGroupGPCreatorOwnersNonUser = @(Get-ADGroupMember -Identity $str_ADDomainSID-520 -Recursive | Where-Object { $_.objectClass -ne 'user' })  # Group Policy Creator Owners
-  $obj_ADGroupDnsAdminsNonUser = @(Get-ADGroupMember -Identity "DnsAdmins" -Recursive | Where-Object { $_.objectClass -ne 'user' })                 # DnsAdmins
+  $obj_ADGroupAdministratorsNonUser = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-544 -Recursive | Where-Object { $_.objectClass -ne 'user' })           # Administrators
+  $obj_ADGroupDomainAdminsNonUser = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-512 -Recursive | Where-Object { $_.objectClass -ne 'user' })     # Domain Admins
+  $obj_ADGroupAccountOperatorsNonUser = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-548 -Recursive | Where-Object { $_.objectClass -ne 'user' })         # Account Operators
+  $obj_ADGroupServerOperatorsNonUser = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-549 -Recursive | Where-Object { $_.objectClass -ne 'user' })          # Server Operators
+  $obj_ADGroupBackupOperatorsNonUser = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-551 -Recursive | Where-Object { $_.objectClass -ne 'user' })          # Backup Operators
+  $obj_ADGroupPrintOperatorsNonUser = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-550 -Recursive | Where-Object { $_.objectClass -ne 'user' })           # Print Operators
+  $obj_ADGroupGPCreatorOwnersNonUser = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-520 -Recursive | Where-Object { $_.objectClass -ne 'user' })  # Group Policy Creator Owners
+  $obj_ADGroupDnsAdminsNonUser = @(Get-ADGroupMember -Server $Server -Identity "DnsAdmins" -Recursive | Where-Object { $_.objectClass -ne 'user' })                 # DnsAdmins
 
   $WeHavePrivilegedNonUserAccounts = $False
 	
@@ -576,7 +590,7 @@ Function New-ADReport
   If ($obj_ADUsersLockedOut) { $obj_ADUsersExpired_all += $obj_ADUsersLockedOut }
   $obj_ADUsersExpired_all = $obj_ADUsersExpired_all | Sort-Object -Unique
   If ($obj_ADUsersExpired_all) { $cnt_ADUsersExpired_all = @($obj_ADUsersExpired_all).Count }
-	
+
   # ==================== #
   # AD computer analysis #
   # ==================== #
@@ -628,15 +642,17 @@ Function New-ADReport
   If ($obj_ADComputersLockedOut) { $obj_ADComputersExpired_all += $obj_ADComputersLockedOut }
   $obj_ADComputersExpired_all = $obj_ADComputersExpired_all | Sort-Object -Unique
   If ($obj_ADComputersExpired_all) { $cnt_ADComputersExpired_all = @($obj_ADComputersExpired_all).Count }
-	
-  # Operating Systems - enabled
+
+  # Operating Systems - enabled and have an IP Address assigned -> used 'recently'
   $obj_ADComputersUnknownOS_enabled = @($obj_ADComputers_enabled | Where-Object { $_.OperatingSystem -eq $null })
-  $obj_ADComputersServers_enabled = @($obj_ADComputers_enabled | Where-Object { $_.OperatingSystem -like '*server*' })
-  $obj_ADComputersWinXP_enabled = @($obj_ADComputers_enabled | Where-Object { $_.OperatingSystem -eq 'Windows XP Professional' })
+  $obj_ADComputersServers_enabled = @($obj_ADComputers_enabled | Where-Object { $_.OperatingSystem -like '*server*'  -and $_.IPv4Address -like "*.*"})
+  $obj_ADComputersWinXP_enabled = @($obj_ADComputers_enabled | Where-Object { $_.OperatingSystem -like '*xp*' -and $_.IPv4Address -like "*.*"})
+  $obj_ADComputersServer2003_enabled = @($obj_ADComputers_enabled | Where-Object { $_.OperatingSystem -like '*server 2003*' -and $_.IPv4Address -like "*.*"})
 
   If ($obj_ADComputersUnknownOS_enabled) { $cnt_ADComputersUnknownOS_enabled = @($obj_ADComputersUnknownOS_enabled).Count }
   If ($obj_ADComputersServers_enabled) { $cnt_ADComputersWindowsServers_enabled = @($obj_ADComputersServers_enabled).Count }
   If ($obj_ADComputersWinXP_enabled) { $cnt_ADComputersWinXP_enabled = @($obj_ADComputersWinXP_enabled).Count }
+  If ($obj_ADComputersServer2003_enabled) { $cnt_ADComputersServer2003_enabled = @($obj_ADComputersServer2003_enabled).Count }
 
   # Windows vs Non-Windows - enabled
   $obj_ADComputersWindows_enabled = @($obj_ADComputers_enabled | Where-Object { $_.OperatingSystem -like '*Windows*' })
@@ -644,17 +660,19 @@ Function New-ADReport
   $cnt_ADComputersNonWindows_enabled = $cnt_ADComputers_enabled - $cnt_ADComputersWindows_enabled
 
   $cnt_ADComputersWindowsClients_enabled = $cnt_ADComputers_enabled - $cnt_ADComputersWindowsServers_enabled - $cnt_ADComputersNonWindows_enabled
-	
+
   # Operating Systems - disabled
   $obj_ADComputersUnknownOS_disabled = @($obj_ADComputers_disabled | Where-Object { $_.OperatingSystem -eq $null })
   $obj_ADComputersServers_disabled = @($obj_ADComputers_disabled | Where-Object { $_.OperatingSystem -like '*server*' })
-  $obj_ADComputersWinXP_disabled = @($obj_ADComputers_disabled | Where-Object { $_.OperatingSystem -eq 'Windows XP Professional' })
+  $obj_ADComputersWinXP_disabled = @($obj_ADComputers_disabled | Where-Object { $_.OperatingSystem -like '*xp*' })
+  $obj_ADComputersServer2003_disabled = @($obj_ADComputers_disabled | Where-Object { $_.OperatingSystem -like '*server 2003*' })
 
   If ($obj_ADComputersUnknownOS_disabled) { $cnt_ADComputersUnknownOS_disabled = @($obj_ADComputersUnknownOS_disabled).Count }
   If ($obj_ADComputersServers_disabled) { $cnt_ADComputersWindowsServers_disabled = @($obj_ADComputersServers_disabled).Count }
   If ($obj_ADComputersWinXP_disabled) { $cnt_ADComputersWinXP_disabled = @($obj_ADComputersWinXP_disabled).Count }
+  If ($obj_ADComputersServer2003_disabled) { $cnt_ADComputersServer2003_disabled = @($obj_ADComputersServer2003_disabled).Count }
 
-  # Windows vs Non-Windows - disabled
+   # Windows vs Non-Windows - disabled
   $obj_ADComputersWindows_disabled = @($obj_ADComputers_disabled | Where-Object { $_.OperatingSystem -like '*Windows*' })
   If ($obj_ADComputersWindows_disabled) { $cnt_ADComputersWindows_disabled = @($obj_ADComputersWindows_disabled).Count }
   $cnt_ADComputersNonWindows_disabled = $cnt_ADComputers_disabled - $cnt_ADComputersWindows_disabled
@@ -745,8 +763,8 @@ Function New-ADReport
 
   # Create report content
   Write-Verbose 'Progress: Creating report content...'
-	
-  # Write output / stats
+
+   # Write output / stats
   $Str_ReportText = @"
 
 "New-ADReport version         : [$str_ScriptVersion]
@@ -877,6 +895,7 @@ Clients and Operating systems : [enabled/disabled]
  - Below CN=Computers Contain.: $cnt_ADComputersContainerCN_enabled/$cnt_ADComputersContainerCN_disabled
  - # of Unknown OS (null)     : $cnt_ADComputersUnknownOS_enabled/$cnt_ADComputersUnknownOS_disabled
  - # of Windows Server family : $cnt_ADComputersWindowsServers_enabled/$cnt_ADComputersWindowsServers_disabled
+   - Server 2003 (unsupported): $cnt_ADComputersServer2003_enabled/$cnt_ADComputersServer2003_disabled
  - # of Windows Client family : $cnt_ADComputersWindowsClients_enabled/$cnt_ADComputersWindowsClients_disabled
    - Windows XP (unsupported) : $cnt_ADComputersWinXP_enabled/$cnt_ADComputersWinXP_disabled
  - # of Windows OS (any type) : $cnt_ADComputersWindows_enabled/$cnt_ADComputersWindows_disabled
@@ -909,5 +928,3 @@ Clients and Operating systems : [enabled/disabled]
   If ($WriteHost_FinalReport) { Write-Host $str_ReportText }
   Else { Write-Verbose "Complete: $ElapsedTimeTotalSeconds seconds." }
 }
-
-New-ADReport -Verbose -WriteHost_FinalReport
