@@ -389,36 +389,36 @@ Function New-ADReport
   If ($bol_ForestRootDomain)
   {
     # Look for users only
-    $obj_ADGroupEnterpriseAdmins = @(Get-ADGroupMember -Identity $str_ADDomainSID-519 -Recursive | Where-Object { $_.objectClass -eq 'user' })        # Enterprise Admins
-    $obj_ADGroupSchemaAdmins = @(Get-ADGroupMember -Identity $str_ADDomainSID-518 -Recursive | Where-Object { $_.objectClass -eq 'user' })            # Schema Admins
+    $obj_ADGroupEnterpriseAdmins = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-519 -Recursive | Where-Object { $_.objectClass -eq 'user' })        # Enterprise Admins
+    $obj_ADGroupSchemaAdmins = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-518 -Recursive | Where-Object { $_.objectClass -eq 'user' })            # Schema Admins
 
     # Look for non-users
-    $obj_ADGroupEnterpriseAdminsNonUser = @(Get-ADGroupMember -Identity $str_ADDomainSID-519 -Recursive | Where-Object { $_.objectClass -ne 'user' }) # Enterprise Admins
-    $obj_ADGroupSchemaAdminsNonUser = @(Get-ADGroupMember -Identity $str_ADDomainSID-518 -Recursive | Where-Object { $_.objectClass -ne 'user' })     # Schema Admins
+    $obj_ADGroupEnterpriseAdminsNonUser = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-519 -Recursive | Where-Object { $_.objectClass -ne 'user' }) # Enterprise Admins
+    $obj_ADGroupSchemaAdminsNonUser = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-518 -Recursive | Where-Object { $_.objectClass -ne 'user' })     # Schema Admins
   }
 
   # Get members of interesting groups (only users)
-  $obj_ADGroupAdministrators = @(Get-ADGroupMember -Identity S-1-5-32-544 -Recursive | Where-Object { $_.objectClass -eq 'user' })                  # Administrators
-  $obj_ADGroupDomainAdmins = @(Get-ADGroupMember -Identity $str_ADDomainSID-512 -Recursive | Where-Object { $_.objectClass -eq 'user' })            # Domain Admins
-  $obj_ADGroupAccountOperators = @(Get-ADGroupMember -Identity S-1-5-32-548 -Recursive | Where-Object { $_.objectClass -eq 'user' })                # Account Operators
-  $obj_ADGroupServerOperators = @(Get-ADGroupMember -Identity S-1-5-32-549 -Recursive | Where-Object { $_.objectClass -eq 'user' })                 # Server Operators
-  $obj_ADGroupBackupOperators = @(Get-ADGroupMember -Identity S-1-5-32-551 -Recursive | Where-Object { $_.objectClass -eq 'user' })                 # Backup Operators
-  $obj_ADGroupPrintOperators = @(Get-ADGroupMember -Identity S-1-5-32-550 -Recursive | Where-Object { $_.objectClass -eq 'user' })                  # Print Operators
-  $obj_ADGroupGuests = @(Get-ADGroupMember -Identity S-1-5-32-546 -Recursive | Where-Object { $_.objectClass -eq 'user' })                          # Guests
-  $obj_ADGroupCertPublishers = @(Get-ADGroupMember -Identity $str_ADDomainSID-517 -Recursive | Where-Object { $_.objectClass -eq 'user' })          # Cert Publishers (OK to have non-user members)
-  $obj_ADGroupGPCreatorOwners = @(Get-ADGroupMember -Identity $str_ADDomainSID-520 -Recursive | Where-Object { $_.objectClass -eq 'user' })         # Group Policy Creator Owners
-  $obj_ADGroupDnsAdmins = @(Get-ADGroupMember -Identity "DnsAdmins" -Recursive | Where-Object { $_.objectClass -eq 'user' })                        # DnsAdmins
+  $obj_ADGroupAdministrators = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-544 -Recursive | Where-Object { $_.objectClass -eq 'user' })                  # Administrators
+  $obj_ADGroupDomainAdmins = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-512 -Recursive | Where-Object { $_.objectClass -eq 'user' })            # Domain Admins
+  $obj_ADGroupAccountOperators = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-548 -Recursive | Where-Object { $_.objectClass -eq 'user' })                # Account Operators
+  $obj_ADGroupServerOperators = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-549 -Recursive | Where-Object { $_.objectClass -eq 'user' })                 # Server Operators
+  $obj_ADGroupBackupOperators = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-551 -Recursive | Where-Object { $_.objectClass -eq 'user' })                 # Backup Operators
+  $obj_ADGroupPrintOperators = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-550 -Recursive | Where-Object { $_.objectClass -eq 'user' })                  # Print Operators
+  $obj_ADGroupGuests = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-546 -Recursive | Where-Object { $_.objectClass -eq 'user' })                          # Guests
+  $obj_ADGroupCertPublishers = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-517 -Recursive | Where-Object { $_.objectClass -eq 'user' })          # Cert Publishers (OK to have non-user members)
+  $obj_ADGroupGPCreatorOwners = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-520 -Recursive | Where-Object { $_.objectClass -eq 'user' })         # Group Policy Creator Owners
+  $obj_ADGroupDnsAdmins = @(Get-ADGroupMember -Server $Server -Identity "DnsAdmins" -Recursive | Where-Object { $_.objectClass -eq 'user' })                        # DnsAdmins
   
 
   # Get members of interesting groups (non-users)
-  $obj_ADGroupAdministratorsNonUser = @(Get-ADGroupMember -Identity S-1-5-32-544 -Recursive | Where-Object { $_.objectClass -ne 'user' })           # Administrators
-  $obj_ADGroupDomainAdminsNonUser = @(Get-ADGroupMember -Identity $str_ADDomainSID-512 -Recursive | Where-Object { $_.objectClass -ne 'user' })     # Domain Admins
-  $obj_ADGroupAccountOperatorsNonUser = @(Get-ADGroupMember -Identity S-1-5-32-548 -Recursive | Where-Object { $_.objectClass -ne 'user' })         # Account Operators
-  $obj_ADGroupServerOperatorsNonUser = @(Get-ADGroupMember -Identity S-1-5-32-549 -Recursive | Where-Object { $_.objectClass -ne 'user' })          # Server Operators
-  $obj_ADGroupBackupOperatorsNonUser = @(Get-ADGroupMember -Identity S-1-5-32-551 -Recursive | Where-Object { $_.objectClass -ne 'user' })          # Backup Operators
-  $obj_ADGroupPrintOperatorsNonUser = @(Get-ADGroupMember -Identity S-1-5-32-550 -Recursive | Where-Object { $_.objectClass -ne 'user' })           # Print Operators
-  $obj_ADGroupGPCreatorOwnersNonUser = @(Get-ADGroupMember -Identity $str_ADDomainSID-520 -Recursive | Where-Object { $_.objectClass -ne 'user' })  # Group Policy Creator Owners
-  $obj_ADGroupDnsAdminsNonUser = @(Get-ADGroupMember -Identity "DnsAdmins" -Recursive | Where-Object { $_.objectClass -ne 'user' })                 # DnsAdmins
+  $obj_ADGroupAdministratorsNonUser = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-544 -Recursive | Where-Object { $_.objectClass -ne 'user' })           # Administrators
+  $obj_ADGroupDomainAdminsNonUser = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-512 -Recursive | Where-Object { $_.objectClass -ne 'user' })     # Domain Admins
+  $obj_ADGroupAccountOperatorsNonUser = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-548 -Recursive | Where-Object { $_.objectClass -ne 'user' })         # Account Operators
+  $obj_ADGroupServerOperatorsNonUser = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-549 -Recursive | Where-Object { $_.objectClass -ne 'user' })          # Server Operators
+  $obj_ADGroupBackupOperatorsNonUser = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-551 -Recursive | Where-Object { $_.objectClass -ne 'user' })          # Backup Operators
+  $obj_ADGroupPrintOperatorsNonUser = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-550 -Recursive | Where-Object { $_.objectClass -ne 'user' })           # Print Operators
+  $obj_ADGroupGPCreatorOwnersNonUser = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-520 -Recursive | Where-Object { $_.objectClass -ne 'user' })  # Group Policy Creator Owners
+  $obj_ADGroupDnsAdminsNonUser = @(Get-ADGroupMember -Server $Server -Identity "DnsAdmins" -Recursive | Where-Object { $_.objectClass -ne 'user' })                 # DnsAdmins
 
   $WeHavePrivilegedNonUserAccounts = $False
 	
