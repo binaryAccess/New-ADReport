@@ -169,7 +169,6 @@ Function New-ADReport
   $str_FileTimeStamp = Get-Date -format 'yyyyMMddHHmmss'
 
   # Get current script execution directory (for output files)
-  If(!$PSScriptRoot){$PSScriptRoot = (Get-Item -Path ".\").FullName}
   If(!$PSScriptRoot){$PSScriptRoot = (Get-Location).Path}
 
   
