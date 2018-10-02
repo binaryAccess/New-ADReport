@@ -156,7 +156,6 @@ Function New-ADReport
   )
 	
   $str_ScriptVersion = '1.30'
-
   
   # Import AD module
   Import-Module ActiveDirectory -Verbose:$False -ErrorAction SilentlyContinue
@@ -170,7 +169,6 @@ Function New-ADReport
 
   # Get current script execution directory (for output files)
   If(!$PSScriptRoot){$PSScriptRoot = (Get-Location).Path}
-
   
   Write-Verbose "Scan AD version               : $str_ScriptVersion" 
   Write-Verbose "- File Time Stamp             : $str_FileTimeStamp" 
@@ -239,7 +237,6 @@ Function New-ADReport
 
   # Basic krbtgt info
   $str_ADUser_krbtgt_PasswordLastSet = (Get-ADUser -Server $Server krbtgt -Properties PasswordLastSet).PasswordLastSet
-
 
   # Initialize user counters (set to zero for report to look nice)
   $cnt_ADUsers                            = 0
@@ -333,7 +330,6 @@ Function New-ADReport
   $cnt_ADComputersWindows_disabled        = 0
   $cnt_ADComputersNonWindows_disabled     = 0
 
-
   # ================= #
   # Gather AD objects #
   # ================= #
@@ -384,7 +380,6 @@ Function New-ADReport
 
   Write-Verbose "GlobalCatalog used: $($strGlobalCatalogServer):$intGlobalCatalogServerPort"
 
-
   # Get members of interesting Forest Root Domain groups (only users)
   If ($bol_ForestRootDomain)
   {
@@ -409,7 +404,6 @@ Function New-ADReport
   $obj_ADGroupGPCreatorOwners = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-520 -Recursive | Where-Object { $_.objectClass -eq 'user' })         # Group Policy Creator Owners
   $obj_ADGroupDnsAdmins = @(Get-ADGroupMember -Server $Server -Identity "DnsAdmins" -Recursive | Where-Object { $_.objectClass -eq 'user' })                        # DnsAdmins
   
-
   # Get members of interesting groups (non-users)
   $obj_ADGroupAdministratorsNonUser = @(Get-ADGroupMember -Server $Server -Identity S-1-5-32-544 -Recursive | Where-Object { $_.objectClass -ne 'user' })           # Administrators
   $obj_ADGroupDomainAdminsNonUser = @(Get-ADGroupMember -Server $Server -Identity $str_ADDomainSID-512 -Recursive | Where-Object { $_.objectClass -ne 'user' })     # Domain Admins
@@ -764,7 +758,7 @@ Function New-ADReport
   # Create report content
   Write-Verbose 'Progress: Creating report content...'
 
-   # Write output / stats
+  # Write output / stats
   $Str_ReportText = @"
 
 "New-ADReport version         : [$str_ScriptVersion]
